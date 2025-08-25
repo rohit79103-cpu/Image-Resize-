@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instant Image Resizer</title>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#121933; --muted:#8390b3; --text:#e8ecff; --accent:#7aa2ff; --ok:#2ecc71; --warn:#ffb020;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; background:linear-gradient(180deg,#0b1020,#0b1328 30%,#0b1020); color:var(--text);}
+
+    .wrap{max-width:1100px; margin:0 auto; padding:24px}
+    header{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap}
+    h1{font-size:clamp(24px,3vw,34px); margin:0}
+    .sub{color:var(--muted); font-size:14px}
+
+    .grid{display:grid; grid-template-columns:1.2fr .8fr; gap:18px; margin-top:18px}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+
+    .card{background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius:18px; box-shadow:0 10px 30px rgba(0,0,0,.25);}
+    .card .hd{padding:16px 18px; border-bottom:1px solid rgba(255,255,255,.06); display:flex; align-items:center; justify-content:space-between}
+    .card .bd{padding:18px}
+
+    .drop{
+      border:2px dashed rgba(255,255,255,.25); border-radius:16px; padding:28px; text-align:center; transition:.2s border-color,.2s background;
+      display:grid; place-items:center; min-height:220px; cursor:pointer; background:rgba(255,255,255,.02)
+    }
+    .drop.drag{border-color:var(--accent); background:rgba(122,162,255,.08)}
+    .drop input{display:none}
+    .hint{color:var(--muted); font-size:13px; margin-top:6px}
+
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+    .row > *{flex:1}
+
+    label{font-size:12px; color:#b7c3e0; display:block; margin:8px 0 6px}
+    input[type="number"], select, input[type="text"], .slider{width:100%; padding:10px 12px; background:#0a1126; color:var(--text); border:1px solid rgba(255,255,255,.1); border-radius:12px; outline:none}
+    input[type="checkbox"]{transform:scale(1.15); margin-right:6px}
+
+    .slider[type=range]{appearance:none; height:8px; border-radius:999px}
+    .slider[type=range]::-webkit-slider-thumb{appearance:none; width:18px; height:18px; border-radius:50%; background:var(--accent); cursor:pointer}
+
+    .btn{display:inline-flex; align-items:center; gap:8px; padding:11px 14px; border-radius:14px; background:var(--accent); color:#0b1020; border:none; font-weight:700; cursor:pointer}
+    .btn:disabled{opacity:.5; cursor:not-allowed}
+    .btn.secondary{background:#192445; color:#dbe3ff}
+    .btn.ghost{background:transparent; border:1px solid rgba(255,255,255,.2); color:#dbe3ff}
+
+    .preview{display:grid; grid-template-columns:1fr; gap:12px}
+    .canvasWrap{position:relative; background:#0a1126; border:1px solid rgba(255,255,255,.08); border-radius:12px; overflow:hidden}
+    canvas{display:block; width:100%; height:auto}
+
+    .meta{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; font-size:13px; color:#cbd7ff}
+    .meta div{background:#0a1126; border:1px solid rgba(255,255,255,.08); border-radius:10px; padding:8px 10px}
+
+    footer{margin-top:18px; color:var(--muted); font-size:12px}
+    kbd{background:#000; border:1px solid #333; border-bottom-width:3px; padding:2px 6px; border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Instant Image Resizer</h1>
+        <div class="sub">Resize, convert, and compress images locally in your browser. No uploads.</div>
+      </div>
+      <div class="row" style="flex:0 0 auto">
+        <button id="downloadBtn" class="btn" disabled>Download</button>
+        <button id="resetBtn" class="btn secondary" disabled>Reset</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <div class="hd"><strong>Upload</strong><span class="hint">Drag & drop, click, or paste from clipboard</span></div>
+        <div class="bd">
+          <label class="drop" id="drop">
+            <input id="fileInput" type="file" accept="image/*" />
+            <div>
+              <div style="font-size:18px; font-weight:700">Drop image here</div>
+              <div class="hint">Supported: PNG, JPG/JPEG, WebP, GIF (first frame)</div>
+            </div>
+          </label>
+
+          <div id="warning" class="hint" style="display:none; margin-top:10px; color:var(--warn)">Animated GIFs will be flattened to the first frame. EXIF metadata is not preserved.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="hd"><strong>Settings</strong><span id="origDims" class="hint"></span></div>
+        <div class="bd">
+          <div class="row">
+            <div style="flex:1 1 120px">
+              <label for="width">Width (px)</label>
+              <input id="width" type="number" min="1" placeholder="auto" />
+            </div>
+            <div style="flex:1 1 120px">
+              <label for="height">Height (px)</label>
+              <input id="height" type="number" min="1" placeholder="auto" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:6px">
+            <label style="flex:1 1 auto"><input id="lockAspect" type="checkbox" checked /> Lock aspect ratio</label>
+            <label style="flex:1 1 auto"><input id="fitContain" type="checkbox" /> Fit inside box (contain)</label>
+          </div>
+
+          <div style="margin-top:12px">
+            <label for="scale">Scale (%)</label>
+            <input id="scale" type="range" class="slider" min="5" max="200" step="1" value="100" />
+            <div class="row"><span id="scaleVal">100%</span></div>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <div>
+              <label for="format">Output format</label>
+              <select id="format">
+                <option value="image/png">PNG (lossless)</option>
+                <option value="image/jpeg" selected>JPEG</option>
+                <option value="image/webp">WebP</option>
+              </select>
+            </div>
+            <div>
+              <label for="quality">Quality (JPEG/WebP)</label>
+              <input id="quality" type="range" class="slider" min="40" max="100" step="1" value="92" />
+              <div class="row"><span id="qualityVal">92</span></div>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button id="applyBtn" class="btn" disabled>Apply</button>
+            <button id="copyBtn" class="btn ghost" disabled>Copy to clipboard</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="grid-column:1/-1">
+        <div class="hd"><strong>Preview</strong><span id="newDims" class="hint"></span></div>
+        <div class="bd">
+          <div class="preview">
+            <div class="canvasWrap"><canvas id="canvas"></canvas></div>
+            <div class="meta">
+              <div>Original: <span id="metaOrig">—</span></div>
+              <div>Output: <span id="metaOut">—</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      Tip: You can paste an image with <kbd>Ctrl/⌘ + V</kbd>. Everything runs locally in your browser.
+    </footer>
+  </div>
+
+  <script>
+    const els = {
+      drop: document.getElementById('drop'),
+      fileInput: document.getElementById('fileInput'),
+      warning: document.getElementById('warning'),
+      width: document.getElementById('width'),
+      height: document.getElementById('height'),
+      lockAspect: document.getElementById('lockAspect'),
+      fitContain: document.getElementById('fitContain'),
+      scale: document.getElementById('scale'),
+      scaleVal: document.getElementById('scaleVal'),
+      format: document.getElementById('format'),
+      quality: document.getElementById('quality'),
+      qualityVal: document.getElementById('qualityVal'),
+      applyBtn: document.getElementById('applyBtn'),
+      copyBtn: document.getElementById('copyBtn'),
+      downloadBtn: document.getElementById('downloadBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      canvas: document.getElementById('canvas'),
+      metaOrig: document.getElementById('metaOrig'),
+      metaOut: document.getElementById('metaOut'),
+      origDims: document.getElementById('origDims'),
+      newDims: document.getElementById('newDims'),
+    };
+
+    const ctx = els.canvas.getContext('2d');
+    let originalImage = null; // HTMLImageElement
+    let originalBitmap = null; // ImageBitmap for speedy draw
+    let originalName = 'image';
+    let origW = 0, origH = 0;
+    let outW = 0, outH = 0;
+
+    function humanSize(bytes){
+      if (!bytes && bytes !== 0) return '—';
+      const units=['B','KB','MB','GB'];
+      let i=0; let n=bytes;
+      while(n>=1024 && i<units.length-1){n/=1024;i++}
+      return n.toFixed(n<10&&i>0?2:1)+' '+units[i]
+    }
+
+    async function loadFile(file){
+      if(!file) return;
+      originalName = file.name?.replace(/\.[^.]+$/, '') || 'image';
+      els.warning.style.display = /gif$/i.test(file.name) ? 'block' : 'none';
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = async () => {
+        originalImage = img;
+        origW = img.naturalWidth; origH = img.naturalHeight;
+        originalBitmap = await createImageBitmap(img);
+        resetSettings();
+        render();
+        const meta = ` ${origW}×${origH}, ${file.type || 'unknown'}, ${humanSize(file.size)}`;
+        els.metaOrig.textContent = meta.trim();
+        els.origDims.textContent = `${origW}×${origH}`;
+        enableControls(true);
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => { alert('Failed to load image.'); URL.revokeObjectURL(url); };
+      img.src = url;
+    }
+
+    function resetSettings(){
+      els.width.value = '';
+      els.height.value = '';
+      els.scale.value = 100; els.scaleVal.textContent = '100%';
+      els.lockAspect.checked = true;
+      els.fitContain.checked = false;
+      els.format.value = 'image/jpeg';
+      els.quality.value = 92; els.qualityVal.textContent = '92';
+      outW = origW; outH = origH;
+      updateNewDims();
+    }
+
+    function enableControls(state){
+      els.applyBtn.disabled = !state;
+      els.copyBtn.disabled = !state;
+      els.downloadBtn.disabled = !state;
+      els.resetBtn.disabled = !state;
+    }
+
+    function computeTargetSize(){
+      let w = Number(els.width.value) || null;
+      let h = Number(els.height.value) || null;
+      const scale = Number(els.scale.value) / 100;
+
+      if(!w && !h){
+        w = Math.max(1, Math.round(origW * scale));
+        h = Math.max(1, Math.round(origH * scale));
+      } else if (w && !h){
+        h = els.lockAspect.checked ? Math.round((w / origW) * origH) : Math.max(1, Math.round(origH * scale));
+      } else if (!w && h){
+        w = els.lockAspect.checked ? Math.round((h / origH) * origW) : Math.max(1, Math.round(origW * scale));
+      }
+
+      if(els.fitContain.checked && (Number(els.width.value) && Number(els.height.value))){
+        const boxW = Number(els.width.value), boxH = Number(els.height.value);
+        const r = Math.min(boxW / origW, boxH / origH);
+        w = Math.max(1, Math.round(origW * r));
+        h = Math.max(1, Math.round(origH * r));
+      }
+
+      return { w: Math.max(1, Math.min(16384, w||1)), h: Math.max(1, Math.min(16384, h||1)) };
+    }
+
+    function updateNewDims(){
+      els.newDims.textContent = `${outW}×${outH}`;
+    }
+
+    function render(){
+      if(!originalBitmap) return;
+      const { w, h } = computeTargetSize();
+      outW = w; outH = h;
+      els.canvas.width = w; els.canvas.height = h;
+      // Use high quality scaling
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.clearRect(0,0,w,h);
+      ctx.drawImage(originalBitmap, 0, 0, w, h);
+      updateNewDims();
+      updateOutputMeta();
+    }
+
+    function updateOutputMeta(){
+      els.canvas.toBlob((blob)=>{
+        if(!blob){ els.metaOut.textContent = '—'; return; }
+        els.metaOut.textContent = `${outW}×${outH}, ${els.format.value.split('/')[1].toUpperCase()}${els.format.value==='image/jpeg'||els.format.value==='image/webp'?`, q=${els.quality.value}`:''}, ~${humanSize(blob.size)}`
+      }, els.format.value, Number(els.quality.value)/100);
+    }
+
+    async function copyToClipboard(){
+      els.canvas.toBlob(async (blob)=>{
+        try{
+          await navigator.clipboard.write([
+            new ClipboardItem({ [blob.type]: blob })
+          ]);
+          toast('Copied image to clipboard ✅');
+        }catch(e){
+          toast('Clipboard copy failed. Please use Download.', true);
+        }
+      }, els.format.value, Number(els.quality.value)/100);
+    }
+
+    function download(){
+      els.canvas.toBlob((blob)=>{
+        if(!blob) return;
+        const a = document.createElement('a');
+        const ext = els.format.value.split('/')[1].replace('jpeg','jpg');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${originalName}_${outW}x${outH}.${ext}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+      }, els.format.value, Number(els.quality.value)/100);
+    }
+
+    // Lightweight toast
+    let toastEl=null; function toast(msg, warn=false){
+      if(!toastEl){ toastEl=document.createElement('div'); document.body.appendChild(toastEl); }
+      Object.assign(toastEl.style,{position:'fixed',bottom:'16px',left:'50%',transform:'translateX(-50%)',background:warn?'#5d2a00':'#11331d',border:'1px solid rgba(255,255,255,.15)',color:'#fff',padding:'10px 14px',borderRadius:'12px',boxShadow:'0 10px 30px rgba(0,0,0,.4)',zIndex:9999,opacity:0,transition:'opacity .2s'});
+      toastEl.textContent = msg; toastEl.style.opacity=1; setTimeout(()=>toastEl.style.opacity=0, 1600);
+    }
+
+    // Event wiring
+    els.fileInput.addEventListener('change', e=> loadFile(e.target.files?.[0]));
+    els.drop.addEventListener('click', ()=> els.fileInput.click());
+    ['dragenter','dragover'].forEach(ev=> els.drop.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); els.drop.classList.add('drag'); }));
+    ['dragleave','drop'].forEach(ev=> els.drop.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); els.drop.classList.remove('drag'); }));
+    els.drop.addEventListener('drop', e=>{
+      const f = e.dataTransfer?.files?.[0]; if(f) loadFile(f);
+    });
+
+    window.addEventListener('paste', e=>{
+      const item = [...(e.clipboardData?.items||[])].find(i=> i.type.startsWith('image/'));
+      if(item){ loadFile(item.getAsFile()); }
+    });
+
+    [els.width, els.height].forEach(inp=> inp.addEventListener('input', ()=> { els.scale.value = 100; els.scaleVal.textContent = '100%'; render(); }));
+    els.lockAspect.addEventListener('change', render);
+    els.fitContain.addEventListener('change', render);
+    els.scale.addEventListener('input', ()=>{ els.scaleVal.textContent = els.scale.value + '%'; els.width.value=''; els.height.value=''; render(); });
+
+    els.format.addEventListener('change', ()=>{ render(); });
+    els.quality.addEventListener('input', ()=>{ els.qualityVal.textContent = els.quality.value; updateOutputMeta(); });
+
+    els.applyBtn.addEventListener('click', render);
+    els.copyBtn.addEventListener('click', copyToClipboard);
+    els.downloadBtn.addEventListener('click', download);
+    els.resetBtn.addEventListener('click', ()=>{ if(!originalImage) return; resetSettings(); render(); });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter' && !els.applyBtn.disabled){ e.preventDefault(); render(); }
+      if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s' && !els.downloadBtn.disabled){ e.preventDefault(); download(); }
+    });
+  </script>
+</body>
+</html>
